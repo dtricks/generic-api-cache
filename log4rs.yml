@@ -1,0 +1,54 @@
+# Scan this file for changes every 30 seconds
+refresh_rate: 30 seconds
+
+appenders:
+  # An appender named "stdout" that writes to stdout
+  stdout:
+    kind: console
+    encoder:
+      kind: pattern
+      pattern: "{d} {h({l})} {t} - {m}{n}"
+
+
+  # An appender named "requests" that writes to a file with a custom pattern encoder
+  requests:
+    kind: rolling_file
+
+    # The path of the log file. Required.
+    # The path can contain environment variables of the form $ENV{name_here},
+    # where 'name_here' will be the name of the environment variable that
+    # will be resolved. Note that if the variable fails to resolve,
+    # $ENV{name_here} will NOT be replaced in the path.
+    path: "./log/requests.log"
+
+    # Specifies if the appender should append to or truncate the log file if it
+    # already exists. Defaults to `true`.
+    append: true
+
+    # The encoder to use to format output. Defaults to `kind: pattern`.
+    encoder:
+      kind: pattern
+
+    # The policy which handles rotation of the log file. Required.
+    policy:
+      # Identifies which policy is to be used. If no kind is specified, it will
+      # default to "compound".
+      kind: compound
+
+      # The remainder of the configuration is passed along to the policy's
+      # deserializer, and will vary based on the kind of policy.
+      trigger:
+        kind: size
+        limit: 2 mb
+
+      roller:
+        kind: fixed_window
+        pattern: log/archive/requests.{}.log.gz
+        count: 10
+        base: 1
+
+root:
+  level: INFO
+  appenders:
+    - stdout
+    - requests

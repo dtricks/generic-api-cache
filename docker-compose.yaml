@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  cache:
+    image: memcached:1-alpine
+    restart: always
+    ports:
+      - "11212:11211"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 200M
+        reservations:
+          memory: 100M

@@ -1,0 +1,10 @@
+address = "0.0.0.0"
+port = 8000
+
+
+memcached_conn_url = "memcache://localhost:11212" 
+memcached_pool_size = 4
+
+target_api = "https://api.sampleapis.com"
+
+cache_time_in_seconds = 600
