@@ -8,6 +8,7 @@ and cache it without changing the request layout.
 
 - Server: [Warp](docs.rs/warp/*)
 - Cache: [Memcached](https://en.wikipedia.org/wiki/Memcached)
+- Serialization: [Bincode](https://github.com/bincode-org/bincode)
 
 
 ## Features
