@@ -4,7 +4,6 @@ use bytes::Bytes;
 use http::header::HeaderMap;
 use http::method::Method;
 use hyper::Client;
-use serde::ser;
 use warp::filters::path::FullPath;
 
 // type CacheConn = web::Data<CachePool>;
@@ -31,7 +30,7 @@ pub enum AppError {
     #[error("Openssl Error")]
     OpensslError(#[from] openssl::error::ErrorStack),
     #[error("Serde Error")]
-    SerdeError(#[from] serde_json::Error),
+    SerdeError(#[from] bincode::Error),
 }
 
 impl warp::reject::Reject for AppError {}
@@ -44,19 +43,14 @@ pub async fn process(
 ) -> Result<warp::http::Response<String>, AppError> {
     let cache = POOL.get()?;
     let cache2 = POOL.get()?;
-    let out;
     let sr;
-    // let mut out = format!(
-    //     "headers: {:#?}, body_bytes: {:?}, method: {:?}, path: {:?}",
-    //     headers, body, method, &path
-    // );
     let path_string = format!("{}", path.as_str());
-    let cached: Option<String> =
+    let cached: Option<Vec<u8>> =
         tokio::task::spawn_blocking(move || cache.get(path.as_str())).await??;
+
     if let Some(cached) = cached {
         log::info!("Accessing {:?} from cache", &path_string);
-        sr = serde_json::from_str(&cached)?;
-        out = cached;
+        sr = bincode::deserialize(&cached)?;
     } else {
         // do client request here
         let uri: hyper::Uri =
@@ -82,22 +76,21 @@ pub async fn process(
         let res = client.request(req).await?;
         let (parts, body) = res.into_parts();
         let text = hyper::body::to_bytes(body).await?;
-        out = format!("{}", std::str::from_utf8(&text)?);
+        let out = format!("{}", std::str::from_utf8(&text)?);
         sr = SerializedResponse {
             body: out.clone(),
             headers: parts.headers,
         };
-        let out_cache = serde_json::to_string(&sr)?;
+        let out_cache = bincode::serialize(&sr)?;
         tokio::task::spawn_blocking(move || {
             cache2.set(
                 &path_string,
-                &out_cache,
+                out_cache.as_slice(),
                 CONFIG.get("cache_time_in_seconds").unwrap_or(600),
             )
         })
         .await??;
     }
-    log::debug!("{}", &out);
     let mut res = warp::http::Response::builder();
     {
         let new_headers = res.headers_mut().unwrap();
