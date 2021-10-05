@@ -4,6 +4,7 @@ use bytes::Bytes;
 use http::header::HeaderMap;
 use http::method::Method;
 use hyper::Client;
+use serde::ser;
 use warp::filters::path::FullPath;
 
 // type CacheConn = web::Data<CachePool>;
@@ -29,6 +30,8 @@ pub enum AppError {
     Utf8Error(#[from] std::str::Utf8Error),
     #[error("Openssl Error")]
     OpensslError(#[from] openssl::error::ErrorStack),
+    #[error("Serde Error")]
+    SerdeError(#[from] serde_json::Error),
 }
 
 impl warp::reject::Reject for AppError {}
@@ -42,6 +45,7 @@ pub async fn process(
     let cache = POOL.get()?;
     let cache2 = POOL.get()?;
     let out;
+    let sr;
     // let mut out = format!(
     //     "headers: {:#?}, body_bytes: {:?}, method: {:?}, path: {:?}",
     //     headers, body, method, &path
@@ -50,13 +54,14 @@ pub async fn process(
     let cached: Option<String> =
         tokio::task::spawn_blocking(move || cache.get(path.as_str())).await??;
     if let Some(cached) = cached {
-        log::info!("Accessing from cache");
+        log::info!("Accessing {:?} from cache", &path_string);
+        sr = serde_json::from_str(&cached)?;
         out = cached;
     } else {
         // do client request here
         let uri: hyper::Uri =
             format!("{}{}", CONFIG.get_str("target_api")?, path_string).parse()?;
-        dbg!(&uri);
+        log::info!("Accessing {:?} from target API {:?}", &path_string, &uri);
         let connector = hyper_openssl::HttpsConnector::new()?;
 
         let client = Client::builder().build::<_, hyper::Body>(connector);
@@ -72,14 +77,17 @@ pub async fn process(
                     new_headers.insert(header_name, header_value);
                 }
             }
-            dbg!(&new_headers);
         }
         let req = req.body(body.into())?;
         let res = client.request(req).await?;
-        let body = res.into_body();
+        let (parts, body) = res.into_parts();
         let text = hyper::body::to_bytes(body).await?;
         out = format!("{}", std::str::from_utf8(&text)?);
-        let out_cache = out.clone();
+        sr = SerializedResponse {
+            body: out.clone(),
+            headers: parts.headers,
+        };
+        let out_cache = serde_json::to_string(&sr)?;
         tokio::task::spawn_blocking(move || {
             cache2.set(
                 &path_string,
@@ -90,5 +98,25 @@ pub async fn process(
         .await??;
     }
     log::debug!("{}", &out);
-    Ok(warp::http::Response::new(out))
+    let mut res = warp::http::Response::builder();
+    {
+        let new_headers = res.headers_mut().unwrap();
+        for (header_key, header_value) in sr.headers {
+            if let Some(header_name) = header_key {
+                new_headers.insert(header_name, header_value);
+            }
+        }
+    }
+    Ok(res.body(sr.body)?)
+}
+
+use serde::Deserialize;
+use serde::Serialize;
+
+#[derive(Serialize, Deserialize)]
+struct SerializedResponse {
+    body: String,
+
+    #[serde(with = "http_serde::header_map")]
+    headers: HeaderMap,
 }

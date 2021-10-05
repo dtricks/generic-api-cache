@@ -1,7 +1,6 @@
 use color_eyre::eyre::Result;
 use config::Config;
 use r2d2_memcache::MemcacheConnectionManager;
-use tokio::net::TcpListener;
 use warp::Filter;
 
 #[macro_use]
@@ -30,8 +29,6 @@ lazy_static! {
     };
 }
 
-type CachePool = r2d2::Pool<MemcacheConnectionManager>;
-
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<()> {
     color_eyre::install()?;
@@ -42,13 +39,6 @@ async fn main() -> Result<()> {
         CONFIG.get::<u16>("port")?
     );
     log::info!("Starting server at: {}", &bind);
-    let memcached_connspec = format!("{}", CONFIG.get_str("memcached_conn_url")?);
-    let memcached_manager = MemcacheConnectionManager::new(memcached_connspec);
-    let memcached_pool = r2d2::Pool::builder()
-        .max_size(CONFIG.get("memcached_pool_size").unwrap_or(4))
-        .build(memcached_manager)
-        .expect("Failed to build cache pool");
-    log::info!("Successfully created memcached connection pool");
 
     let routes = warp::any()
         .and(warp::header::headers_cloned())
@@ -65,21 +55,4 @@ async fn main() -> Result<()> {
         .await;
 
     Ok(())
-    // let arc = std::sync::Arc::new(memcached_pool);
-
-    // let listener = TcpListener::bind(&bind).await?;
-
-    // loop {
-    //     let (socket, addr) = listener.accept().await?;
-    //     let memcached_pool = memcached_pool.clone();
-    //     tokio::spawn(async move {
-    //         // Process each socket concurrently.
-    //         use crate::routes::process;
-    //         let conn = memcached_pool.get().unwrap();
-    //         match process(&memcached_pool, socket).await {
-    //             Ok(_) => (),
-    //             Err(e) => log::error!("{}", e),
-    //         }
-    //     });
-    // }
 }
